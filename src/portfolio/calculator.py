@@ -1,16 +1,19 @@
 from config.constants import FUND_CATEGORIES, EQUITY_CATEGORIES
-from src.market.prices import prefetch_history
-from src.market.indicators import get_moving_average, get_dip_score
+from src.sheets.price_refresh import get_moving_average
 from src.utils.logger import get_logger
 
 logger = get_logger("portfolio.calculator")
 
 
+def _dip_score(current_price: float, ma_50: float) -> float:
+    if not ma_50 or ma_50 == 0:
+        return 0.0
+    return (current_price - ma_50) / ma_50 * 100
+
+
 def compute_holdings(holdings: list[dict], config: dict) -> list[dict]:
     total_portfolio = config["TOTAL_IRA_VALUE"]
 
-    # Phase 1: portfolio math using sheet prices
-    # Prices come from Google Apps Script (GOOGLEFINANCE → written as values)
     for h in holdings:
         if h["current_price"] > 0:
             logger.info("%s: $%.2f (from sheet)", h["symbol"], h["current_price"])
@@ -50,21 +53,12 @@ def compute_holdings(holdings: list[dict], config: dict) -> list[dict]:
 
         h["vs_plan_pct"] = round(h["portfolio_weight_pct"] - h["planned_pct"], 2)
 
-    # Phase 2: dip scores via yfinance (50d moving average)
-    # This is the ONLY yfinance usage — prices always come from Google Sheet
-    symbols_for_ma = [h["symbol"] for h in holdings if h["current_price"] > 0]
-    prefetch_history(symbols_for_ma)
-
-    for h in holdings:
+        # Dip score from Apps Script 50d MA (no yfinance)
         if h["current_price"] > 0:
-            try:
-                ma = get_moving_average(h["symbol"])
-                if ma:
-                    h["dip_score"] = round(get_dip_score(h["current_price"], ma), 2)
-                else:
-                    h["dip_score"] = 0.0
-            except Exception as e:
-                logger.warning("Dip score failed for %s: %s", h["symbol"], e)
+            ma = get_moving_average(h["symbol"])
+            if ma:
+                h["dip_score"] = round(_dip_score(h["current_price"], ma), 2)
+            else:
                 h["dip_score"] = 0.0
         else:
             h["dip_score"] = 0.0

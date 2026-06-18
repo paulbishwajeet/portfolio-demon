@@ -1,4 +1,4 @@
-from src.market.prices import get_spy_daily_change
+from src.sheets.price_refresh import get_spy_daily_change
 from src.utils.logger import get_logger
 
 logger = get_logger("signals.correction")

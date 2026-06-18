@@ -12,7 +12,7 @@ from src.portfolio.calculator import compute_holdings, get_portfolio_breakdown
 from src.signals.tier3_speculative import check_deployment_signals
 from src.signals.correction import check_correction_signal
 from src.alerts.dispatcher import dispatch_correction
-from src.market.prices import get_spy_daily_change
+from src.sheets.price_refresh import get_spy_daily_change
 from src.utils.logger import get_logger
 
 logger = get_logger("run_correction")
