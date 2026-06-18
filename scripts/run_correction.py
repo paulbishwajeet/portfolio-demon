@@ -47,7 +47,7 @@ def main():
             sheet,
             run_type="correction",
             signals_fired=[{"type": s["type"], "symbol": s.get("symbol", "")} for s in signals],
-            telegram_sent=sent,
+            email_sent=sent,
             sp500_change_pct=spy_change,
             portfolio_equity_pct=breakdown["equity_pct"],
             portfolio_fund_pct=breakdown["fund_pct"],

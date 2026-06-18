@@ -22,30 +22,39 @@ def test_weekly_digest_format():
             "priority_score": 270.0, "message": "test",
         },
     ]
-    msg = format_weekly_digest(MOCK_HOLDINGS, MOCK_CONFIG, breakdown, health, signals)
-    assert "WEEKLY DIGEST" in msg
-    assert "PORTFOLIO HEALTH" in msg
-    assert "DEPLOYMENT OPPORTUNITIES" in msg
-    assert "XLP" in msg
-    assert "no action required" in msg
-    assert len(msg) > 100
+    subject, plain, html = format_weekly_digest(MOCK_HOLDINGS, MOCK_CONFIG, breakdown, health, signals)
+    assert "IRA" in subject
+    assert "WEEKLY DIGEST" in plain
+    assert "PORTFOLIO HEALTH" in plain
+    assert "DEPLOYMENT OPPORTUNITIES" in plain
+    assert "XLP" in plain
+    assert len(plain) > 100
+    assert "<html>" in html or "<div" in html
+
+
+def test_weekly_digest_no_signals():
+    breakdown = get_portfolio_breakdown(MOCK_HOLDINGS, MOCK_CONFIG)
+    health = analyze_health(MOCK_HOLDINGS, MOCK_CONFIG, breakdown)
+    subject, plain, html = format_weekly_digest(MOCK_HOLDINGS, MOCK_CONFIG, breakdown, health, [])
+    assert "No qualifying dips" in plain
+    assert "within bands" in plain
 
 
 def test_correction_alert_format():
     opps = [
         {"symbol": "XLP", "pct_below_ma": -9.0, "headroom_amount": 30000.0},
     ]
-    msg = format_correction_alert(-3.5, 833637.12, opps)
-    assert "CORRECTION ALERT" in msg
-    assert "3.5%" in msg
-    assert "833,637" in msg
-    assert "XLP" in msg
-    assert "No action required" in msg
+    subject, plain, html = format_correction_alert(-3.5, 833637.12, opps)
+    assert "CORRECTION ALERT" in plain
+    assert "3.5%" in plain
+    assert "833,637" in plain
+    assert "XLP" in plain
+    assert "SPY" in subject
 
 
 def test_correction_alert_no_opportunities():
-    msg = format_correction_alert(-4.0, 500000.0, [])
-    assert "No positions currently below threshold" in msg
+    subject, plain, html = format_correction_alert(-4.0, 500000.0, [])
+    assert "No positions currently below threshold" in plain
 
 
 def test_stop_loss_alert_format():
@@ -56,16 +65,16 @@ def test_stop_loss_alert_format():
         "stop_loss_pct": 40.0, "category": "speculative",
         "status": "active", "notes": "Quantum computing leader.",
     }
-    msg = format_stop_loss_alert(signal)
-    assert "STOP LOSS ALERT" in msg
-    assert "IONQ" in msg
-    assert "48.3%" in msg
-    assert "No action required" in msg
+    subject, plain, html = format_stop_loss_alert(signal)
+    assert "STOP LOSS ALERT" in plain
+    assert "IONQ" in plain
+    assert "48.3%" in plain
+    assert "IONQ" in subject
 
 
-def test_weekly_digest_max_length():
+def test_weekly_digest_includes_correction_threshold():
     breakdown = get_portfolio_breakdown(MOCK_HOLDINGS, MOCK_CONFIG)
     health = analyze_health(MOCK_HOLDINGS, MOCK_CONFIG, breakdown)
-    msg = format_weekly_digest(MOCK_HOLDINGS, MOCK_CONFIG, breakdown, health, [])
-    # Should be well under Telegram's 4096 limit with test data
-    assert len(msg) < 4096
+    subject, plain, html = format_weekly_digest(MOCK_HOLDINGS, MOCK_CONFIG, breakdown, health, [])
+    assert "CORRECTION ALERT THRESHOLD" in plain
+    assert "3%" in plain
