@@ -9,14 +9,15 @@ TIMEOUT_SECONDS = 300
 
 _moving_averages: dict[str, float] = {}
 _spy_daily_change: float | None = None
+_refresh_status: dict = {"ran": False, "ok": False, "updated": 0, "failed": [], "error": ""}
 
 
 def trigger_price_refresh() -> bool:
-    """Call the Google Apps Script web app to refresh prices, MAs, and SPY change.
-    Returns True if prices were refreshed successfully."""
-    global _moving_averages, _spy_daily_change
+    global _moving_averages, _spy_daily_change, _refresh_status
 
     if not APPS_SCRIPT_URL:
+        _refresh_status = {"ran": False, "ok": False, "updated": 0, "failed": [],
+                           "error": "APPS_SCRIPT_URL not configured"}
         logger.warning("APPS_SCRIPT_URL not set — skipping price refresh")
         return False
 
@@ -27,10 +28,11 @@ def trigger_price_refresh() -> bool:
         data = resp.json()
 
         if data.get("status") == "ok":
-            logger.info("Price refresh: %d updated, %d failed",
-                        data.get("updated", 0), len(data.get("failed", [])))
-            if data.get("failed"):
-                logger.warning("Failed symbols: %s", ", ".join(data["failed"]))
+            failed = data.get("failed", [])
+            updated = data.get("updated", 0)
+            logger.info("Price refresh: %d updated, %d failed", updated, len(failed))
+            if failed:
+                logger.warning("Failed symbols: %s", ", ".join(failed))
 
             ma_data = data.get("moving_averages", {})
             _moving_averages = {k: float(v) for k, v in ma_data.items() if v is not None}
@@ -41,14 +43,23 @@ def trigger_price_refresh() -> bool:
             if _spy_daily_change is not None:
                 logger.info("SPY daily change: %.2f%%", _spy_daily_change)
 
+            _refresh_status = {"ran": True, "ok": True, "updated": updated,
+                               "failed": failed, "error": ""}
             return True
         else:
-            logger.error("Price refresh error: %s", data.get("message", "unknown"))
+            msg = data.get("message", "unknown error")
+            _refresh_status = {"ran": True, "ok": False, "updated": 0,
+                               "failed": [], "error": msg}
+            logger.error("Price refresh error: %s", msg)
             return False
     except requests.exceptions.Timeout:
+        _refresh_status = {"ran": True, "ok": False, "updated": 0,
+                           "failed": [], "error": f"Timed out after {TIMEOUT_SECONDS}s"}
         logger.error("Price refresh timed out after %ds", TIMEOUT_SECONDS)
         return False
     except Exception as e:
+        _refresh_status = {"ran": True, "ok": False, "updated": 0,
+                           "failed": [], "error": str(e)}
         logger.error("Price refresh failed: %s", e)
         return False
 
@@ -59,3 +70,7 @@ def get_moving_average(symbol: str) -> float | None:
 
 def get_spy_daily_change() -> float | None:
     return _spy_daily_change
+
+
+def get_refresh_status() -> dict:
+    return _refresh_status
