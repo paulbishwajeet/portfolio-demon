@@ -1,5 +1,5 @@
 from config.constants import FUND_CATEGORIES, EQUITY_CATEGORIES
-from src.market.prices import prefetch_all
+from src.market.prices import prefetch_history
 from src.market.indicators import get_moving_average, get_dip_score
 from src.utils.logger import get_logger
 
@@ -9,12 +9,13 @@ logger = get_logger("portfolio.calculator")
 def compute_holdings(holdings: list[dict], config: dict) -> list[dict]:
     total_portfolio = config["TOTAL_IRA_VALUE"]
 
-    # Phase 1: compute portfolio math using sheet prices (GOOGLEFINANCE)
+    # Phase 1: portfolio math using sheet prices
+    # Prices come from Google Apps Script (GOOGLEFINANCE → written as values)
     for h in holdings:
         if h["current_price"] > 0:
-            logger.info("Using sheet price for %s: $%.2f", h["symbol"], h["current_price"])
+            logger.info("%s: $%.2f (from sheet)", h["symbol"], h["current_price"])
         else:
-            logger.warning("No price for %s — skipping", h["symbol"])
+            logger.warning("%s: no price in sheet — skipping", h["symbol"])
 
         shares = h["deployed_shares"]
         deployed = h["deployed_amount"]
@@ -49,10 +50,10 @@ def compute_holdings(holdings: list[dict], config: dict) -> list[dict]:
 
         h["vs_plan_pct"] = round(h["portfolio_weight_pct"] - h["planned_pct"], 2)
 
-    # Phase 2: fetch historical data from yfinance for dip scores (50d MA)
-    # This is the ONLY yfinance usage — prices come from the Google Sheet
+    # Phase 2: dip scores via yfinance (50d moving average)
+    # This is the ONLY yfinance usage — prices always come from Google Sheet
     symbols_for_ma = [h["symbol"] for h in holdings if h["current_price"] > 0]
-    prefetch_all(symbols_for_ma)
+    prefetch_history(symbols_for_ma)
 
     for h in holdings:
         if h["current_price"] > 0:
