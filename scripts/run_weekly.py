@@ -77,7 +77,7 @@ def main():
     sent = dispatch_weekly(holdings, config, breakdown, health, all_signals)
 
     try:
-        from src.market.prices import get_spy_daily_change
+        from src.sheets.price_refresh import get_spy_daily_change
         spy_change = get_spy_daily_change() or 0.0
         append_signal_log(
             sheet,
