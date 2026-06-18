@@ -1,6 +1,6 @@
 # Portfolio Demon
 
-A Python-based portfolio monitoring system that tracks your brokerage holdings via Google Sheets and sends strategic alerts via Telegram. Designed for long-term retirement accounts with wide signal thresholds and weekly cadence.
+A Python-based portfolio monitoring system that tracks your brokerage holdings via Google Sheets and sends strategic alerts via email. Designed for long-term retirement accounts with wide signal thresholds and weekly cadence.
 
 **This is a monitoring tool, not a trading bot.** It never places orders. Every alert ends with "No action required — your decision."
 
@@ -12,7 +12,7 @@ A Python-based portfolio monitoring system that tracks your brokerage holdings v
 - **80/20 balance tracking** — monitors core funds vs equity allocation with ±5% tolerance band
 - **Dip scoring** — flags positions >7% below 50-day moving average with remaining headroom
 - **Business cycle rotation** — adjusts signal priorities based on EARLY/MID/LATE/RECESSION phase
-- **Live prices** — GOOGLEFINANCE in the sheet + yfinance fallback in Python
+- **Live prices** — GOOGLEFINANCE via Apps Script (auto-refreshes daily) + yfinance for moving averages
 - **Trade processing** — enter trades in the sheet, run a script, everything updates automatically
 
 ---
@@ -24,7 +24,7 @@ A Python-based portfolio monitoring system that tracks your brokerage holdings v
 - Python 3.11+
 - A brokerage account (Fidelity, Schwab, Vanguard, or any broker with CSV export)
 - A Google account
-- A Telegram account (optional — can run in dry-run mode without it)
+- A Gmail account (for sending alerts via SMTP)
 - A GitHub account (optional — for scheduled runs via GitHub Actions)
 
 ---
@@ -80,8 +80,9 @@ Edit `.env` with your values:
 ```
 GOOGLE_SERVICE_ACCOUNT_JSON=<paste entire JSON key content on one line>
 GOOGLE_SHEET_ID=<your sheet ID from step 3>
-TELEGRAM_BOT_TOKEN=<leave empty for now>
-TELEGRAM_CHAT_ID=<leave empty for now>
+EMAIL_SENDER=your-email@gmail.com
+EMAIL_PASSWORD=your-gmail-app-password
+EMAIL_RECIPIENT=your-email@gmail.com
 DRY_RUN=true
 ```
 
@@ -173,10 +174,33 @@ Also check the **Portfolio_Config** tab:
 
 ---
 
-### Step 7: Test Run
+### Step 7: Set Up Automatic Price Refresh (Google Apps Script)
+
+GOOGLEFINANCE formulas only refresh when the sheet is open in a browser. To keep prices fresh for the daily GitHub Actions runs, set up a server-side Apps Script trigger:
+
+1. Open your Google Sheet
+2. Go to **Extensions → Apps Script**
+3. Delete the default code in the editor
+4. Copy the entire contents of `scripts/google_apps_script.js` from this repo and paste it in
+5. Click **Save** (disk icon)
+6. Click the **clock icon** (Triggers) in the left sidebar
+7. Click **+ Add Trigger** at the bottom right:
+   - **Function**: `refreshPrices`
+   - **Event source**: Time-driven
+   - **Type of time based trigger**: Day timer
+   - **Time of day**: 6am to 7am *(runs before the 9am ET GitHub Action)*
+8. Click **Save** — authorize when prompted (it needs permission to edit your sheet)
+
+**Test it now:** In the Apps Script editor, select `refreshPrices` from the function dropdown → click **Run**. Check the Holdings tab — the `current_price` column should update with fresh values.
+
+The script writes a `PRICES_LAST_REFRESHED` timestamp to the Portfolio_Config tab so you can verify it ran.
+
+---
+
+### Step 8: Test Run
 
 ```bash
-# Weekly digest in dry-run mode (prints message, doesn't send Telegram)
+# Weekly digest in dry-run mode (prints message, doesn't send email)
 DRY_RUN=true python scripts/run_weekly.py
 ```
 
@@ -184,23 +208,21 @@ You should see a formatted portfolio digest printed to the terminal.
 
 ---
 
-### Step 8: Telegram Setup (Optional)
+### Step 9: Email Setup
 
-Skip this if you only want to monitor via the Google Sheet.
+Alerts are sent via Gmail SMTP. You need a **Gmail App Password** (not your regular password).
 
-1. Open Telegram → search for **@BotFather** → start a chat
-2. Send `/newbot`
-3. Name it `Portfolio Demon Bot`
-4. Pick a unique username like `portfolio_demon_YOURNAME_bot`
-5. BotFather replies with a **token** — copy it
-6. Search for your new bot in Telegram → click **Start**
-7. Search for **@userinfobot** → it replies with your **chat ID** (a number)
+1. Go to [myaccount.google.com/security](https://myaccount.google.com/security) — make sure **2-Step Verification** is ON
+2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+3. Select app: **Mail**, device: **Other** → name it `Portfolio Demon` → **Generate**
+4. Copy the 16-character password (e.g. `abcd efgh ijkl mnop`)
 
 Update `.env`:
 
 ```
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
-TELEGRAM_CHAT_ID=123456789
+EMAIL_SENDER=your-email@gmail.com
+EMAIL_PASSWORD=abcdefghijklmnop
+EMAIL_RECIPIENT=your-email@gmail.com
 DRY_RUN=false
 ```
 
@@ -210,21 +232,22 @@ Test:
 python scripts/run_weekly.py
 ```
 
-You should receive the weekly digest in Telegram.
+You should receive the weekly digest email.
 
 ---
 
-### Step 9: GitHub Actions (Optional)
+### Step 10: GitHub Actions
 
 For automated scheduled runs without keeping your computer on.
 
 1. Push the repository to GitHub
 2. Go to **Settings → Secrets and variables → Actions → New repository secret**
-3. Add these 4 secrets:
+3. Add these 5 secrets:
    - `GOOGLE_SERVICE_ACCOUNT_JSON` — the entire JSON key file content (paste all on one line)
    - `GOOGLE_SHEET_ID` — your sheet ID
-   - `TELEGRAM_BOT_TOKEN` — from BotFather
-   - `TELEGRAM_CHAT_ID` — from @userinfobot
+   - `EMAIL_SENDER` — your Gmail address
+   - `EMAIL_PASSWORD` — the 16-char App Password from Step 9
+   - `EMAIL_RECIPIENT` — where to receive alerts
 4. Go to the **Actions** tab → **Enable workflows**
 5. Test: **Actions → Manual Portfolio Demon Run → Run workflow** → mode: `weekly`, dry_run: `true`
 
@@ -313,7 +336,7 @@ src/sheets/         → Google Sheets auth, read, write
 src/market/         → Yahoo Finance prices, indicators, market status
 src/portfolio/      → Portfolio math (weights, P&L, headroom)
 src/signals/        → Signal logic (macro rotation, rebalance, deployment, stop-loss)
-src/alerts/         → Telegram bot, message formatting, dispatch logic
+src/alerts/         → Email sender, message formatting, dispatch logic
 src/importers/      → Broker CSV parsers (Fidelity, Schwab, Vanguard, generic)
 config/             → Settings (env vars) and constants (thresholds, categories)
 ```

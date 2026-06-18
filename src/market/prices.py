@@ -8,8 +8,10 @@ logger = get_logger("market.prices")
 
 FIDELITY_FUNDS = {"FXAIX", "FSPSX", "FDGFX", "FXNAX", "FIPDX", "FZILX"}
 
-_price_cache: dict[str, float] = {}
 _history_cache: dict[str, pd.DataFrame] = {}
+
+BATCH_SIZE = 5
+BATCH_DELAY = 12
 
 
 def _extract_close(df: pd.DataFrame, symbol: str | None = None) -> pd.Series:
@@ -22,29 +24,23 @@ def _extract_close(df: pd.DataFrame, symbol: str | None = None) -> pd.Series:
 
 
 def _download_batch(symbols: list[str], period: str = "3mo") -> bool:
-    """Download a small batch of symbols. Returns True if any data was cached."""
     if not symbols:
         return False
-
     ticker_str = " ".join(symbols)
     try:
         df = yf.download(ticker_str, period=period, interval="1d", progress=False, threads=False)
     except Exception as e:
-        logger.warning("Batch download failed for %s: %s", symbols, e)
+        logger.warning("Batch failed [%s]: %s", ", ".join(symbols), e)
         return False
 
     if df.empty:
         return False
 
     close = df["Close"]
-
-    # Single-symbol download returns a Series, not a multi-column DataFrame
     if isinstance(close, pd.Series):
         series = close.dropna()
         if not series.empty:
-            sym = symbols[0]
-            _price_cache[sym] = float(series.iloc[-1])
-            _history_cache[sym] = df
+            _history_cache[symbols[0]] = df
             return True
         return False
 
@@ -55,7 +51,6 @@ def _download_batch(symbols: list[str], period: str = "3mo") -> bool:
         series = close[sym].dropna()
         if series.empty:
             continue
-        _price_cache[sym] = float(series.iloc[-1])
         try:
             sym_df = df.xs(sym, axis=1, level=1) if isinstance(df.columns, pd.MultiIndex) else df
             _history_cache[sym] = sym_df if not sym_df.empty else pd.DataFrame()
@@ -66,39 +61,37 @@ def _download_batch(symbols: list[str], period: str = "3mo") -> bool:
     return cached_any
 
 
-def prefetch_all(symbols: list[str]) -> None:
-    """Download price history in small batches with delays to avoid rate limits."""
-    global _price_cache, _history_cache
+def prefetch_history(symbols: list[str]) -> None:
+    """Fetch 3-month history for 50d MA calculation. Small batches with long delays."""
+    global _history_cache
 
     if not symbols:
         return
 
     all_symbols = list(set(symbols + ["SPY"]))
-    batch_size = 8
-    batches = [all_symbols[i:i + batch_size] for i in range(0, len(all_symbols), batch_size)]
+    batches = [all_symbols[i:i + BATCH_SIZE] for i in range(0, len(all_symbols), BATCH_SIZE)]
 
-    logger.info("Fetching %d symbols in %d batches of %d", len(all_symbols), len(batches), batch_size)
+    logger.info("Fetching history for %d symbols in %d batches (size %d, %ds delay)",
+                len(all_symbols), len(batches), BATCH_SIZE, BATCH_DELAY)
 
     for i, batch in enumerate(batches):
         if i > 0:
-            time.sleep(2)
+            logger.info("Waiting %ds before batch %d...", BATCH_DELAY, i + 1)
+            time.sleep(BATCH_DELAY)
         logger.info("Batch %d/%d: %s", i + 1, len(batches), " ".join(batch))
-        _download_batch(batch)
+        success = _download_batch(batch)
+        if not success:
+            logger.warning("Batch %d failed — backing off 20s", i + 1)
+            time.sleep(20)
 
-    # Retry any Fidelity mutual funds that didn't come through
+    # Retry missing Fidelity mutual funds
     missing_funds = [s for s in symbols if s in FIDELITY_FUNDS and s not in _history_cache]
     for sym in missing_funds:
-        time.sleep(2)
-        logger.info("Retrying mutual fund %s individually", sym)
+        time.sleep(BATCH_DELAY)
+        logger.info("Retrying mutual fund %s", sym)
         _download_batch([sym], period="3mo")
 
-    logger.info("Prefetch complete: %d/%d symbols have history", len(_history_cache), len(all_symbols))
-
-
-def get_current_price(symbol: str) -> float | None:
-    if symbol in _price_cache:
-        return _price_cache[symbol]
-    return None
+    logger.info("History prefetch complete: %d/%d symbols", len(_history_cache), len(all_symbols))
 
 
 def get_history(symbol: str) -> pd.DataFrame:
