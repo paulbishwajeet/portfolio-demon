@@ -1,5 +1,5 @@
 from config.constants import FUND_CATEGORIES, EQUITY_CATEGORIES
-from src.market.prices import get_current_price, prefetch_all
+from src.market.prices import prefetch_all
 from src.market.indicators import get_moving_average, get_dip_score
 from src.utils.logger import get_logger
 
@@ -9,22 +9,12 @@ logger = get_logger("portfolio.calculator")
 def compute_holdings(holdings: list[dict], config: dict) -> list[dict]:
     total_portfolio = config["TOTAL_IRA_VALUE"]
 
-    # Batch-download all price data in one request to avoid rate limits
-    symbols_to_fetch = [
-        h["symbol"] for h in holdings
-        if h["current_price"] <= 0 or h["deployed_shares"] > 0
-    ]
-    prefetch_all(symbols_to_fetch)
-
+    # Phase 1: compute portfolio math using sheet prices (GOOGLEFINANCE)
     for h in holdings:
         if h["current_price"] > 0:
-            logger.info("Using sheet price for %s: $%.4f", h["symbol"], h["current_price"])
+            logger.info("Using sheet price for %s: $%.2f", h["symbol"], h["current_price"])
         else:
-            price = get_current_price(h["symbol"])
-            if price is not None:
-                h["current_price"] = round(price, 4)
-            else:
-                logger.warning("No price for %s from sheet or yfinance", h["symbol"])
+            logger.warning("No price for %s — skipping", h["symbol"])
 
         shares = h["deployed_shares"]
         deployed = h["deployed_amount"]
@@ -59,7 +49,11 @@ def compute_holdings(holdings: list[dict], config: dict) -> list[dict]:
 
         h["vs_plan_pct"] = round(h["portfolio_weight_pct"] - h["planned_pct"], 2)
 
-    # Phase 2: dip scores (separate pass to allow batch optimization later)
+    # Phase 2: fetch historical data from yfinance for dip scores (50d MA)
+    # This is the ONLY yfinance usage — prices come from the Google Sheet
+    symbols_for_ma = [h["symbol"] for h in holdings if h["current_price"] > 0]
+    prefetch_all(symbols_for_ma)
+
     for h in holdings:
         if h["current_price"] > 0:
             try:

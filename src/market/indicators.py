@@ -7,7 +7,8 @@ logger = get_logger("market.indicators")
 
 
 def get_moving_average(symbol: str, window: int = 50) -> float | None:
-    df = get_history(symbol, period="60d")
+    """Calculate moving average from prefetched history. No new API calls."""
+    df = get_history(symbol)
     if df.empty:
         return None
     close = df["Close"]
@@ -26,16 +27,3 @@ def get_dip_score(current_price: float, ma_50: float) -> float:
     if not ma_50 or ma_50 == 0:
         return 0.0
     return (current_price - ma_50) / ma_50 * 100
-
-
-def get_52w_high_low(symbol: str) -> tuple[float | None, float | None]:
-    df = get_history(symbol, period="1y")
-    if df.empty:
-        return None, None
-    close = df["Close"]
-    if isinstance(close, pd.DataFrame):
-        close = close.iloc[:, 0]
-    close = close.dropna()
-    if close.empty:
-        return None, None
-    return float(close.max()), float(close.min())
