@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 
 from src.utils.logger import get_logger
-from src.utils.retry import api_retry
 
 logger = get_logger("market.prices")
 
@@ -22,129 +21,97 @@ def _extract_close(df: pd.DataFrame, symbol: str | None = None) -> pd.Series:
     return close.dropna()
 
 
-def prefetch_all(symbols: list[str], period: str = "3mo") -> None:
-    """Batch-download price history for all symbols in one request to avoid rate limits."""
-    global _price_cache, _history_cache
-
+def _download_batch(symbols: list[str], period: str = "3mo") -> bool:
+    """Download a small batch of symbols. Returns True if any data was cached."""
     if not symbols:
-        return
+        return False
 
-    # Include SPY for correction checks
-    all_symbols = list(set(symbols + ["SPY"]))
-    ticker_str = " ".join(all_symbols)
-
-    logger.info("Batch downloading %d symbols", len(all_symbols))
+    ticker_str = " ".join(symbols)
     try:
-        df = yf.download(ticker_str, period=period, interval="1d", progress=False, threads=True)
+        df = yf.download(ticker_str, period=period, interval="1d", progress=False, threads=False)
     except Exception as e:
-        logger.error("Batch download failed: %s — falling back to individual", e)
-        return
+        logger.warning("Batch download failed for %s: %s", symbols, e)
+        return False
 
     if df.empty:
-        logger.warning("Batch download returned empty data")
-        return
+        return False
 
     close = df["Close"]
-    if isinstance(close, pd.Series):
-        # Single symbol case
-        sym = all_symbols[0] if len(all_symbols) == 1 else None
-        if sym:
-            series = close.dropna()
-            if not series.empty:
-                _price_cache[sym] = float(series.iloc[-1])
-                _history_cache[sym] = df
-        return
 
-    for sym in all_symbols:
+    # Single-symbol download returns a Series, not a multi-column DataFrame
+    if isinstance(close, pd.Series):
+        series = close.dropna()
+        if not series.empty:
+            sym = symbols[0]
+            _price_cache[sym] = float(series.iloc[-1])
+            _history_cache[sym] = df
+            return True
+        return False
+
+    cached_any = False
+    for sym in symbols:
         if sym not in close.columns:
             continue
         series = close[sym].dropna()
         if series.empty:
             continue
         _price_cache[sym] = float(series.iloc[-1])
-        sym_df = df.xs(sym, axis=1, level=1) if isinstance(df.columns, pd.MultiIndex) else df
-        _history_cache[sym] = sym_df if not sym_df.empty else pd.DataFrame()
+        try:
+            sym_df = df.xs(sym, axis=1, level=1) if isinstance(df.columns, pd.MultiIndex) else df
+            _history_cache[sym] = sym_df if not sym_df.empty else pd.DataFrame()
+        except Exception:
+            _history_cache[sym] = pd.DataFrame()
+        cached_any = True
 
-    # Retry Fidelity mutual funds individually if missing
-    for sym in symbols:
-        if sym in FIDELITY_FUNDS and sym not in _price_cache:
-            logger.info("Retrying %s individually (mutual fund)", sym)
-            time.sleep(1)
-            try:
-                fund_df = yf.download(sym, period="3mo", interval="1d", progress=False)
-                if not fund_df.empty:
-                    series = _extract_close(fund_df, sym)
-                    if not series.empty:
-                        _price_cache[sym] = float(series.iloc[-1])
-                        _history_cache[sym] = fund_df
-            except Exception as e:
-                logger.warning("Mutual fund retry failed for %s: %s", sym, e)
+    return cached_any
 
-    logger.info("Prefetch complete: %d/%d symbols cached", len(_price_cache), len(all_symbols))
+
+def prefetch_all(symbols: list[str]) -> None:
+    """Download price history in small batches with delays to avoid rate limits."""
+    global _price_cache, _history_cache
+
+    if not symbols:
+        return
+
+    all_symbols = list(set(symbols + ["SPY"]))
+    batch_size = 8
+    batches = [all_symbols[i:i + batch_size] for i in range(0, len(all_symbols), batch_size)]
+
+    logger.info("Fetching %d symbols in %d batches of %d", len(all_symbols), len(batches), batch_size)
+
+    for i, batch in enumerate(batches):
+        if i > 0:
+            time.sleep(2)
+        logger.info("Batch %d/%d: %s", i + 1, len(batches), " ".join(batch))
+        _download_batch(batch)
+
+    # Retry any Fidelity mutual funds that didn't come through
+    missing_funds = [s for s in symbols if s in FIDELITY_FUNDS and s not in _history_cache]
+    for sym in missing_funds:
+        time.sleep(2)
+        logger.info("Retrying mutual fund %s individually", sym)
+        _download_batch([sym], period="3mo")
+
+    logger.info("Prefetch complete: %d/%d symbols have history", len(_history_cache), len(all_symbols))
 
 
 def get_current_price(symbol: str) -> float | None:
     if symbol in _price_cache:
         return _price_cache[symbol]
-
-    try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.fast_info
-        price = getattr(info, "last_price", None)
-        if price and price > 0:
-            _price_cache[symbol] = float(price)
-            return float(price)
-    except Exception:
-        pass
-
-    try:
-        hist = yf.download(symbol, period="5d", interval="1d", progress=False)
-        if not hist.empty:
-            series = _extract_close(hist, symbol)
-            if not series.empty:
-                price = float(series.iloc[-1])
-                _price_cache[symbol] = price
-                return price
-    except Exception as e:
-        logger.warning("Failed to get price for %s: %s", symbol, e)
-
     return None
 
 
-def get_history(symbol: str, period: str = "60d", interval: str = "1d") -> pd.DataFrame:
+def get_history(symbol: str) -> pd.DataFrame:
     if symbol in _history_cache and not _history_cache[symbol].empty:
         return _history_cache[symbol]
-
-    try:
-        df = yf.download(symbol, period=period, interval=interval, progress=False)
-        if not df.empty:
-            _history_cache[symbol] = df
-            return df
-    except Exception:
-        pass
-
-    if symbol in FIDELITY_FUNDS:
-        logger.info("Retrying %s as mutual fund with extended period", symbol)
-        try:
-            df = yf.download(symbol, period="3mo", interval="1d", progress=False)
-            if not df.empty:
-                _history_cache[symbol] = df
-                return df
-        except Exception as e:
-            logger.warning("Mutual fund fallback failed for %s: %s", symbol, e)
-
     return pd.DataFrame()
 
 
 def get_spy_daily_change() -> float | None:
     try:
-        if "SPY" in _history_cache and not _history_cache["SPY"].empty:
-            df = _history_cache["SPY"]
-        else:
-            df = yf.download("SPY", period="5d", interval="1d", progress=False)
-
-        if df.empty or len(df) < 2:
+        if "SPY" not in _history_cache or _history_cache["SPY"].empty:
             return None
+        df = _history_cache["SPY"]
         series = _extract_close(df, "SPY")
         if len(series) < 2:
             return None
