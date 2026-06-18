@@ -1,44 +1,54 @@
 /**
  * Google Apps Script — Refresh prices in the Holdings tab.
  *
- * This runs server-side inside Google Sheets on a timed trigger.
- * It fetches live prices via GOOGLEFINANCE and writes them as plain
- * values into the current_price column so they're always fresh —
- * even when the sheet isn't open in a browser.
+ * Deployed as a web app so the Python job can trigger it via HTTP
+ * before reading the sheet. No separate timer needed.
  *
  * SETUP:
- *   1. Open your Google Sheet
- *   2. Extensions → Apps Script
- *   3. Delete the default code, paste this entire file
- *   4. Click the clock icon (Triggers) on the left sidebar
- *   5. + Add Trigger:
- *        Function: refreshPrices
- *        Event source: Time-driven
- *        Type: Day timer
- *        Time: 6am to 7am (runs before the 9am ET GitHub Action)
- *   6. Save — authorize when prompted
+ *   1. Open your Google Sheet → Extensions → Apps Script
+ *   2. Delete the default code, paste this entire file
+ *   3. Click Save
+ *   4. Click Deploy → New deployment
+ *   5. Type: Web app
+ *      Execute as: Me
+ *      Who has access: Anyone
+ *   6. Click Deploy → Authorize when prompted
+ *   7. Copy the Web app URL — it looks like:
+ *      https://script.google.com/macros/s/AKfyc.../exec
+ *   8. Add it as a GitHub secret: APPS_SCRIPT_URL
  *
- * The trigger runs once per day. You can also run it manually from
- * the Apps Script editor (select refreshPrices → click Run).
+ * The Python job calls this URL before reading the sheet.
+ * You can also open the URL in a browser to trigger a manual refresh.
  */
+
+function doGet(e) {
+  try {
+    var result = refreshPrices();
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      message: err.message
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
 
 function refreshPrices() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Holdings");
   if (!sheet) {
-    Logger.log("Holdings tab not found");
-    return;
+    return { status: "error", message: "Holdings tab not found" };
   }
 
   var data = sheet.getDataRange().getValues();
   var header = data[0];
 
-  // Find column indexes
   var symbolCol = header.indexOf("symbol");
   var priceCol = header.indexOf("current_price");
 
   if (symbolCol === -1 || priceCol === -1) {
-    Logger.log("Could not find symbol or current_price columns");
-    return;
+    return { status: "error", message: "Could not find symbol or current_price columns" };
   }
 
   var updated = 0;
@@ -51,7 +61,6 @@ function refreshPrices() {
     try {
       var price = getPrice(symbol);
       if (price && price > 0) {
-        // Write as plain value (row i+1 because sheets are 1-indexed)
         sheet.getRange(i + 1, priceCol + 1).setValue(price);
         updated++;
       } else {
@@ -62,33 +71,31 @@ function refreshPrices() {
       failed.push(symbol);
     }
 
-    // Small delay to avoid hitting Google's rate limit
     Utilities.sleep(500);
   }
 
-  // Write timestamp to a known cell so Python can verify freshness
+  // Write timestamp so Python can verify freshness
   var configSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Portfolio_Config");
   if (configSheet) {
     setConfigValue(configSheet, "PRICES_LAST_REFRESHED", new Date().toISOString());
   }
 
-  var msg = "Refreshed " + updated + " prices.";
-  if (failed.length > 0) {
-    msg += " Failed: " + failed.join(", ");
-  }
-  Logger.log(msg);
+  return {
+    status: "ok",
+    updated: updated,
+    failed: failed,
+    timestamp: new Date().toISOString()
+  };
 }
 
 
 /**
  * Fetch a single price using a temporary GOOGLEFINANCE formula.
- * We write the formula to a scratch cell, read the result, then clear it.
  */
 function getPrice(symbol) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var scratch = ss.getSheetByName("_scratch");
 
-  // Create a hidden scratch sheet if it doesn't exist
   if (!scratch) {
     scratch = ss.insertSheet("_scratch");
     scratch.hideSheet();
@@ -97,7 +104,6 @@ function getPrice(symbol) {
   var cell = scratch.getRange("A1");
   cell.setFormula('=GOOGLEFINANCE("' + symbol + '", "price")');
 
-  // GOOGLEFINANCE needs a moment to resolve
   SpreadsheetApp.flush();
   Utilities.sleep(1000);
 
@@ -108,7 +114,7 @@ function getPrice(symbol) {
     return value;
   }
 
-  // Some mutual funds need a different format
+  // Mutual fund fallback
   if (value === "" || value === "#N/A" || value === null) {
     cell.setFormula('=GOOGLEFINANCE("MUTF:' + symbol + '", "price")');
     SpreadsheetApp.flush();
@@ -125,9 +131,6 @@ function getPrice(symbol) {
 }
 
 
-/**
- * Set a key-value pair in the Portfolio_Config tab.
- */
 function setConfigValue(configSheet, key, value) {
   var data = configSheet.getDataRange().getValues();
   for (var i = 0; i < data.length; i++) {
@@ -136,6 +139,5 @@ function setConfigValue(configSheet, key, value) {
       return;
     }
   }
-  // Key not found — append it
   configSheet.appendRow([key, value]);
 }

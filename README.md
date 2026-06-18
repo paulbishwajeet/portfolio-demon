@@ -176,24 +176,23 @@ Also check the **Portfolio_Config** tab:
 
 ### Step 7: Set Up Automatic Price Refresh (Google Apps Script)
 
-GOOGLEFINANCE formulas only refresh when the sheet is open in a browser. To keep prices fresh for the daily GitHub Actions runs, set up a server-side Apps Script trigger:
+GOOGLEFINANCE formulas only refresh when the sheet is open in a browser. This Apps Script runs server-side — the Python job triggers it via HTTP before reading prices, so everything stays in one run.
 
-1. Open your Google Sheet
-2. Go to **Extensions → Apps Script**
-3. Delete the default code in the editor
-4. Copy the entire contents of `scripts/google_apps_script.js` from this repo and paste it in
-5. Click **Save** (disk icon)
-6. Click the **clock icon** (Triggers) in the left sidebar
-7. Click **+ Add Trigger** at the bottom right:
-   - **Function**: `refreshPrices`
-   - **Event source**: Time-driven
-   - **Type of time based trigger**: Day timer
-   - **Time of day**: 6am to 7am *(runs before the 9am ET GitHub Action)*
-8. Click **Save** — authorize when prompted (it needs permission to edit your sheet)
+1. Open your Google Sheet → **Extensions → Apps Script**
+2. Delete the default code in the editor
+3. Copy the entire contents of `scripts/google_apps_script.js` from this repo and paste it in
+4. Click **Save** (disk icon)
+5. Click **Deploy → New deployment**
+6. Click the gear icon → select **Web app**
+   - **Execute as**: Me
+   - **Who has access**: Anyone
+7. Click **Deploy** → **Authorize access** when prompted
+8. Copy the **Web app URL** (looks like `https://script.google.com/macros/s/AKfyc.../exec`)
+9. Add it as a GitHub secret: `APPS_SCRIPT_URL`
 
-**Test it now:** In the Apps Script editor, select `refreshPrices` from the function dropdown → click **Run**. Check the Holdings tab — the `current_price` column should update with fresh values.
+**Test it:** Open the Web app URL in your browser — you should see a JSON response like `{"status":"ok","updated":34,"failed":[],...}`. Check your Holdings tab — `current_price` should have fresh values.
 
-The script writes a `PRICES_LAST_REFRESHED` timestamp to the Portfolio_Config tab so you can verify it ran.
+**How it works:** Each Python run calls this URL first → Apps Script fetches GOOGLEFINANCE prices for every symbol → writes them as plain values to the sheet → Python reads the fresh prices. No stale data, no yfinance needed for prices.
 
 ---
 

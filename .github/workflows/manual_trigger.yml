@@ -33,6 +33,7 @@ jobs:
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          APPS_SCRIPT_URL: ${{ secrets.APPS_SCRIPT_URL }}
           DRY_RUN: ${{ inputs.dry_run }}
           RUN_MODE: ${{ inputs.mode }}
         run: python scripts/run_manual.py
