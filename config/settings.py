@@ -21,5 +21,7 @@ EMAIL_RECIPIENT = os.environ.get("EMAIL_RECIPIENT", "")
 EMAIL_SMTP_HOST = os.environ.get("EMAIL_SMTP_HOST", "smtp.gmail.com")
 EMAIL_SMTP_PORT = int(os.environ.get("EMAIL_SMTP_PORT", "587"))
 
+APPS_SCRIPT_URL = os.environ.get("APPS_SCRIPT_URL", "")
+
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 RUN_MODE = os.environ.get("RUN_MODE", "daily")

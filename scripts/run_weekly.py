@@ -5,6 +5,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.sheets.client import get_sheet
+from src.sheets.price_refresh import trigger_price_refresh
 from src.sheets.reader import read_holdings, read_config
 from src.sheets.writer import update_holdings, append_signal_log
 from src.portfolio.calculator import compute_holdings, get_portfolio_breakdown
@@ -25,6 +26,8 @@ logger = get_logger("run_weekly")
 
 def main():
     logger.info("=== Weekly Portfolio Demon Digest ===")
+
+    trigger_price_refresh()
 
     sheet = get_sheet()
     config = read_config(sheet)

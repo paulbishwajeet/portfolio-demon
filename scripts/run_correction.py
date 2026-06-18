@@ -5,6 +5,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.sheets.client import get_sheet
+from src.sheets.price_refresh import trigger_price_refresh
 from src.sheets.reader import read_holdings, read_config
 from src.sheets.writer import append_signal_log
 from src.portfolio.calculator import compute_holdings, get_portfolio_breakdown
@@ -19,6 +20,8 @@ logger = get_logger("run_correction")
 
 def main():
     logger.info("=== Correction Check ===")
+
+    trigger_price_refresh()
 
     sheet = get_sheet()
     config = read_config(sheet)
