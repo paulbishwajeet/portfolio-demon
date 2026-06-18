@@ -4,13 +4,33 @@ from src.alerts.formatter import (
     format_correction_alert,
     format_stop_loss_alert,
 )
+from src.sheets.price_refresh import get_refresh_status
 from src.utils.logger import get_logger
 
 logger = get_logger("alerts.dispatcher")
 
 
+def _build_data_warnings() -> list[str]:
+    warnings = []
+    status = get_refresh_status()
+
+    if not status["ran"]:
+        warnings.append(f"Price refresh did not run: {status['error']}")
+        warnings.append("Prices may be stale — verify before acting")
+    elif not status["ok"]:
+        warnings.append(f"Price refresh failed: {status['error']}")
+        warnings.append("Prices may be stale — verify before acting")
+    elif status["failed"]:
+        warnings.append(f"Price refresh failed for: {', '.join(status['failed'])}")
+
+    return warnings
+
+
 def dispatch_weekly(holdings, config, breakdown, health, all_signals) -> bool:
-    subject, plain, html = format_weekly_digest(holdings, config, breakdown, health, all_signals)
+    warnings = _build_data_warnings()
+    subject, plain, html = format_weekly_digest(
+        holdings, config, breakdown, health, all_signals, data_warnings=warnings,
+    )
     return send_email(subject, plain, html)
 
 

@@ -18,12 +18,15 @@ def _action_label(pct_below_ma: float, headroom: float, status: str) -> str:
 def format_weekly_digest(
     holdings: list[dict], config: dict, breakdown: dict,
     health: dict, signals: list[dict],
+    data_warnings: list[str] | None = None,
 ) -> tuple[str, str, str]:
     """Returns (subject, plain_text, html)."""
     dt = now_et()
     date_str = dt.strftime("%a %b %d, %Y")
     owner = config.get("OWNER_NAME", "Portfolio Owner")
-    subject = f"IRA Portfolio Digest — {dt.strftime('%b %d, %Y')}"
+
+    has_warnings = bool(data_warnings)
+    subject = f"{'⚠️ ' if has_warnings else ''}IRA Portfolio Digest — {dt.strftime('%b %d, %Y')}"
 
     # Band status
     equity_pct = health["equity_of_invested_pct"]
@@ -38,13 +41,21 @@ def format_weekly_digest(
 
     lines = [
         f"📊 IRA WEEKLY DIGEST — {date_str}",
+    ]
+
+    if data_warnings:
+        lines.extend(["", "🔶 DATA QUALITY WARNINGS"])
+        for w in data_warnings:
+            lines.append(f"  ⚠️ {w}")
+
+    lines.extend([
         "",
         "💼 PORTFOLIO HEALTH",
         f"Total value:     ${breakdown['total_value']:,.0f}",
         f"Equity / Funds:  {equity_pct:.0f}% / {fund_pct:.0f}%  {band_label}",
         f"Cash remaining:  ${cash:,.0f}  ← {cash_pct:.1f}% — deploy priority",
         f"Cycle phase:     {health['cycle_phase']}  (set by you)",
-    ]
+    ])
 
     # Rebalance flags
     rebalance = [s for s in signals if s["type"] in ("band_breach", "overweight", "speculative_cap")]
@@ -162,7 +173,7 @@ def _build_digest_html(lines: list[str], date_str: str) -> str:
         escaped = _h(line)
         if line.startswith("📊") or line.startswith("🚨"):
             html_lines.append(f'<div style="font-size:16px;font-weight:bold;margin-top:12px;">{escaped}</div>')
-        elif line.startswith(("💼", "⚖️", "🛒", "🔄", "📌", "🟡", "⚠️", "⚡")):
+        elif line.startswith(("💼", "⚖️", "🛒", "🔄", "📌", "🟡", "⚠️", "⚡", "🔶")):
             html_lines.append(f'<div style="font-size:14px;font-weight:bold;margin-top:16px;'
                               f'border-bottom:1px solid #ddd;padding-bottom:4px;">{escaped}</div>')
         elif line.startswith("✓"):
