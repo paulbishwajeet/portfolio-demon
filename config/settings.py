@@ -14,7 +14,12 @@ def get_google_credentials_info():
 
 
 GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+EMAIL_SENDER = os.environ.get("EMAIL_SENDER", "")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "")
+EMAIL_RECIPIENT = os.environ.get("EMAIL_RECIPIENT", "")
+EMAIL_SMTP_HOST = os.environ.get("EMAIL_SMTP_HOST", "smtp.gmail.com")
+EMAIL_SMTP_PORT = int(os.environ.get("EMAIL_SMTP_PORT", "587"))
+
 DRY_RUN = os.environ.get("DRY_RUN", "false").lower() == "true"
 RUN_MODE = os.environ.get("RUN_MODE", "daily")

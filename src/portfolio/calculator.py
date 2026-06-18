@@ -1,5 +1,5 @@
 from config.constants import FUND_CATEGORIES, EQUITY_CATEGORIES
-from src.market.prices import get_current_price
+from src.market.prices import get_current_price, prefetch_all
 from src.market.indicators import get_moving_average, get_dip_score
 from src.utils.logger import get_logger
 
@@ -9,7 +9,13 @@ logger = get_logger("portfolio.calculator")
 def compute_holdings(holdings: list[dict], config: dict) -> list[dict]:
     total_portfolio = config["TOTAL_IRA_VALUE"]
 
-    # Phase 1: use GOOGLEFINANCE price from sheet, fall back to yfinance
+    # Batch-download all price data in one request to avoid rate limits
+    symbols_to_fetch = [
+        h["symbol"] for h in holdings
+        if h["current_price"] <= 0 or h["deployed_shares"] > 0
+    ]
+    prefetch_all(symbols_to_fetch)
+
     for h in holdings:
         if h["current_price"] > 0:
             logger.info("Using sheet price for %s: $%.4f", h["symbol"], h["current_price"])

@@ -1,4 +1,4 @@
-"""Daily pre-market check. Sends Telegram only if stop-loss or SPY correction fires."""
+"""Daily pre-market check. Sends email only if stop-loss or SPY correction fires."""
 import sys
 import os
 
@@ -67,17 +67,14 @@ def main():
         logger.error("Correction check failed: %s", e)
         notes_parts.append(f"correction_error: {e}")
 
-    # Write computed values back to sheet
     try:
         update_holdings(sheet, holdings)
     except Exception as e:
         logger.error("Sheet update failed: %s", e)
         notes_parts.append(f"sheet_update_error: {e}")
 
-    # Dispatch alerts (only stop-loss and correction on daily runs)
     sent = dispatch_daily(all_signals, config, holdings, breakdown, health, deployment_signals)
 
-    # Log to Signal_Log
     try:
         from src.market.prices import get_spy_daily_change
         spy_change = get_spy_daily_change() or 0.0
@@ -85,7 +82,7 @@ def main():
             sheet,
             run_type="daily",
             signals_fired=[{"type": s["type"], "symbol": s.get("symbol", "")} for s in all_signals],
-            telegram_sent=sent,
+            email_sent=sent,
             sp500_change_pct=spy_change,
             portfolio_equity_pct=breakdown["equity_pct"],
             portfolio_fund_pct=breakdown["fund_pct"],
@@ -94,7 +91,7 @@ def main():
     except Exception as e:
         logger.error("Signal log failed: %s", e)
 
-    logger.info("Daily run complete. Signals: %d, Telegram sent: %s", len(all_signals), sent)
+    logger.info("Daily run complete. Signals: %d, Email sent: %s", len(all_signals), sent)
 
 
 if __name__ == "__main__":

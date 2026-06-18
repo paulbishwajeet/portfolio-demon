@@ -69,6 +69,6 @@ HOLDINGS_COLUMNS = [
 ]
 
 SIGNAL_LOG_COLUMNS = [
-    "run_timestamp", "run_type", "signals_fired", "telegram_sent",
+    "run_timestamp", "run_type", "signals_fired", "email_sent",
     "sp500_change_pct", "portfolio_equity_pct", "portfolio_fund_pct", "notes",
 ]
