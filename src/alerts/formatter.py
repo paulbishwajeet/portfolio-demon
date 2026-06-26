@@ -205,7 +205,7 @@ def format_daily_watchlist(
     subject = f"📋 Daily Deployment Watchlist — {date_str}"
 
     lines = [
-        f"📋 DAILY DEPLOYMENT WATCHLIST — {date_str}",
+        f"1M IRA ETRADE: DAILY DEPLOYMENT WATCHLIST — {date_str}",
         f"Cash available: ${config.get('CASH_REMAINING', 0):,.0f}",
         "",
         f"{'Symbol':<8}  {'Curr $':>8}  {'Prev $':>8}  {'Day%':>6}  {'Deployed':>10}  {'Headroom':>10}  {'Plan':>6}",
