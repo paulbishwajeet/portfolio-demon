@@ -20,6 +20,7 @@ from src.signals.tier3_speculative import (
 from src.signals.correction import check_correction_signal
 from src.alerts.dispatcher import dispatch_daily
 from src.utils.logger import get_logger
+from scripts.process_trades import process_trades
 
 logger = get_logger("run_daily")
 
@@ -27,9 +28,14 @@ logger = get_logger("run_daily")
 def main():
     logger.info("=== Daily Portfolio Demon ===")
 
-    trigger_price_refresh()
-
     sheet = get_sheet()
+
+    try:
+        process_trades(sheet)
+    except Exception as e:
+        logger.error("Trade processing failed: %s", e)
+
+    trigger_price_refresh()
     config = read_config(sheet)
     holdings = read_holdings(sheet)
 

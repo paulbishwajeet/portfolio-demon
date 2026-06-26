@@ -46,8 +46,9 @@ def ensure_trade_entry_tab(sheet: gspread.Spreadsheet) -> gspread.Worksheet:
     return ws
 
 
-def process_trades():
-    sheet = get_sheet()
+def process_trades(sheet=None):
+    if sheet is None:
+        sheet = get_sheet()
 
     # Ensure Trade_Entry tab exists
     te_ws = ensure_trade_entry_tab(sheet)
