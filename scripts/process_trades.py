@@ -144,8 +144,8 @@ def process_trades(sheet=None):
         h_row_idx = symbol_rows[symbol]
         h_row = h_data[h_row_idx - 1]  # 0-indexed in h_data
 
-        current_deployed_amt = float(h_row[deployed_amt_col].replace(",", "") or "0")
-        current_deployed_shares = float(h_row[deployed_shares_col].replace(",", "") or "0")
+        current_deployed_amt = float(h_row[deployed_amt_col].replace(",", "").replace("$", "") or "0")
+        current_deployed_shares = float(h_row[deployed_shares_col].replace(",", "").replace("$", "") or "0")
 
         if action == "BUY":
             new_deployed_amt = round(current_deployed_amt + total_amount, 2)
