@@ -59,7 +59,20 @@ function refreshAll() {
     if (sym && sym !== "") symbols.push(sym);
   }
 
-  // Phase 1: Refresh current prices
+  // Phase 1: Set live GOOGLEFINANCE price formulas (IFERROR tries MUTF: for mutual funds)
+  for (var i = 1; i < data.length; i++) {
+    var symbol = data[i][symbolCol];
+    if (!symbol || symbol === "") continue;
+
+    var cell = sheet.getRange(i + 1, priceCol + 1);
+    var formula = '=IFERROR(GOOGLEFINANCE("' + symbol + '","price"),GOOGLEFINANCE("MUTF:' + symbol + '","price"))';
+    cell.setFormula(formula);
+  }
+
+  SpreadsheetApp.flush();
+  Utilities.sleep(3000);
+
+  // Read resolved values for the response
   var updated = 0;
   var failed = [];
   var prices = {};
@@ -68,23 +81,28 @@ function refreshAll() {
     var symbol = data[i][symbolCol];
     if (!symbol || symbol === "") continue;
 
-    try {
-      var price = getPrice(symbol);
-      if (price && price > 0) {
-        sheet.getRange(i + 1, priceCol + 1).setValue(price);
-        prices[symbol] = price;
-        updated++;
-      } else {
-        failed.push(symbol);
-      }
-    } catch (e) {
-      Logger.log("Price error for " + symbol + ": " + e.message);
+    var value = sheet.getRange(i + 1, priceCol + 1).getValue();
+    if (typeof value === "number" && value > 0) {
+      prices[symbol] = value;
+      updated++;
+    } else {
       failed.push(symbol);
     }
-    Utilities.sleep(300);
   }
 
-  // Phase 2: Compute 50-day moving averages
+  // Phase 2: Fetch previous close prices (for day-over-day comparison)
+  var prevPrices = {};
+  for (var j = 0; j < symbols.length; j++) {
+    try {
+      var prev = getPrevClose(symbols[j]);
+      if (prev !== null) prevPrices[symbols[j]] = prev;
+    } catch (e) {
+      Logger.log("Prev close error for " + symbols[j] + ": " + e.message);
+    }
+    Utilities.sleep(200);
+  }
+
+  // Phase 3: Compute 50-day moving averages
   var movingAverages = {};
   for (var j = 0; j < symbols.length; j++) {
     try {
@@ -98,7 +116,7 @@ function refreshAll() {
     Utilities.sleep(300);
   }
 
-  // Phase 3: SPY daily change
+  // Phase 4: SPY daily change
   var spyChange = null;
   try {
     spyChange = getSpyDailyChange();
@@ -116,39 +134,11 @@ function refreshAll() {
     status: "ok",
     updated: updated,
     failed: failed,
+    prev_prices: prevPrices,
     moving_averages: movingAverages,
     spy_daily_change_pct: spyChange,
     timestamp: new Date().toISOString()
   };
-}
-
-
-/**
- * Fetch current price via GOOGLEFINANCE.
- */
-function getPrice(symbol) {
-  var scratch = getScratchSheet();
-  var cell = scratch.getRange("A1");
-
-  cell.setFormula('=GOOGLEFINANCE("' + symbol + '", "price")');
-  SpreadsheetApp.flush();
-  Utilities.sleep(800);
-
-  var value = cell.getValue();
-  cell.clearContent();
-
-  if (typeof value === "number" && value > 0) return value;
-
-  // Mutual fund fallback
-  cell.setFormula('=GOOGLEFINANCE("MUTF:' + symbol + '", "price")');
-  SpreadsheetApp.flush();
-  Utilities.sleep(800);
-
-  value = cell.getValue();
-  cell.clearContent();
-
-  if (typeof value === "number" && value > 0) return value;
-  return null;
 }
 
 
@@ -227,6 +217,25 @@ function getSpyDailyChange() {
   var today = closes[closes.length - 1];
   var prev = closes[closes.length - 2];
   return Math.round((today - prev) / prev * 10000) / 100;
+}
+
+
+/**
+ * Fetch previous trading day's closing price via GOOGLEFINANCE closeyest.
+ */
+function getPrevClose(symbol) {
+  var scratch = getScratchSheet();
+  var cell = scratch.getRange("A1");
+
+  cell.setFormula('=IFERROR(GOOGLEFINANCE("' + symbol + '","closeyest"),GOOGLEFINANCE("MUTF:' + symbol + '","closeyest"))');
+  SpreadsheetApp.flush();
+  Utilities.sleep(600);
+
+  var value = cell.getValue();
+  cell.clearContent();
+
+  if (typeof value === "number" && value > 0) return value;
+  return null;
 }
 
 

@@ -8,12 +8,13 @@ logger = get_logger("sheets.price_refresh")
 TIMEOUT_SECONDS = 300
 
 _moving_averages: dict[str, float] = {}
+_prev_prices: dict[str, float] = {}
 _spy_daily_change: float | None = None
 _refresh_status: dict = {"ran": False, "ok": False, "updated": 0, "failed": [], "error": ""}
 
 
 def trigger_price_refresh() -> bool:
-    global _moving_averages, _spy_daily_change, _refresh_status
+    global _moving_averages, _prev_prices, _spy_daily_change, _refresh_status
 
     if not APPS_SCRIPT_URL:
         _refresh_status = {"ran": False, "ok": False, "updated": 0, "failed": [],
@@ -33,6 +34,10 @@ def trigger_price_refresh() -> bool:
             logger.info("Price refresh: %d updated, %d failed", updated, len(failed))
             if failed:
                 logger.warning("Failed symbols: %s", ", ".join(failed))
+
+            prev_data = data.get("prev_prices", {})
+            _prev_prices = {k: float(v) for k, v in prev_data.items() if v is not None}
+            logger.info("Previous close prices received for %d symbols", len(_prev_prices))
 
             ma_data = data.get("moving_averages", {})
             _moving_averages = {k: float(v) for k, v in ma_data.items() if v is not None}
@@ -62,6 +67,10 @@ def trigger_price_refresh() -> bool:
                            "failed": [], "error": str(e)}
         logger.error("Price refresh failed: %s", e)
         return False
+
+
+def get_prev_price(symbol: str) -> float | None:
+    return _prev_prices.get(symbol)
 
 
 def get_moving_average(symbol: str) -> float | None:

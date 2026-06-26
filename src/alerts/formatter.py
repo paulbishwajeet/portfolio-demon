@@ -185,6 +185,62 @@ def _build_digest_html(lines: list[str], date_str: str) -> str:
     return "\n".join(html_lines)
 
 
+def format_daily_watchlist(
+    holdings: list[dict], config: dict, prev_prices: dict,
+) -> tuple[str, str, str]:
+    """Daily email: underdeployed symbols with current vs previous price."""
+    from src.utils.date_utils import now_et
+    dt = now_et()
+    date_str = dt.strftime("%a %b %d, %Y")
+    min_headroom = config.get("ALERT_MIN_HEADROOM", 2000.0)
+
+    DEPLOY_STATUSES = {"active", "watch", "new"}
+    candidates = [
+        h for h in holdings
+        if h["status"] in DEPLOY_STATUSES
+        and h.get("headroom_amount", 0) >= min_headroom
+    ]
+    candidates.sort(key=lambda h: h.get("headroom_amount", 0), reverse=True)
+
+    subject = f"📋 Daily Deployment Watchlist — {date_str}"
+
+    lines = [
+        f"1M IRA ETRADE: DAILY DEPLOYMENT WATCHLIST — {date_str}",
+        f"Cash available: ${config.get('CASH_REMAINING', 0):,.0f}",
+        "",
+        f"{'Symbol':<8}  {'Curr $':>8}  {'Prev $':>8}  {'Day%':>6}  {'Deployed':>10}  {'Headroom':>10}  {'Plan':>6}",
+        "─" * 68,
+    ]
+
+    for h in candidates:
+        sym = h["symbol"]
+        curr = h.get("current_price", 0) or 0
+        prev = prev_prices.get(sym)
+        if prev and prev > 0 and curr > 0:
+            day_chg = (curr - prev) / prev * 100
+            day_str = f"{day_chg:+.1f}%"
+            prev_str = f"${prev:,.2f}"
+        else:
+            day_str = "   n/a"
+            prev_str = "     n/a"
+        deployed = h.get("deployed_amount", 0) or 0
+        headroom = h.get("headroom_amount", 0) or 0
+        planned_pct = h.get("planned_pct", 0) or 0
+        lines.append(
+            f"{sym:<8}  ${curr:>7,.2f}  {prev_str:>8}  {day_str:>6}  "
+            f"${deployed:>9,.0f}  ${headroom:>9,.0f}  {planned_pct:.1f}%"
+        )
+
+    if not candidates:
+        lines.append("✓ All positions at or above planned deployment")
+
+    lines.extend(["", "Your call — no action required."])
+
+    plain = "\n".join(lines)
+    html = _build_digest_html(lines, date_str)
+    return subject, plain, html
+
+
 def format_correction_alert(
     change_pct: float, cash: float, opportunities: list[dict],
 ) -> tuple[str, str, str]:
