@@ -8,20 +8,19 @@ Built the entire Portfolio Demon application from scratch in a single session. S
 **2026-06-18 (session 2):**
 Deployed to GitHub and switched notification channel from Telegram to email. Initialized git repo, created develop branch, pushed to `paulbishwajeet/portfolio-demon`, created and merged PR #1. Replaced `python-telegram-bot` with Python `smtplib` (Gmail SMTP + App Password). Rewrote digest format to match user's exact spec (monospace layout with portfolio health, deployment opportunities, rotation watch, speculative watchlist, correction threshold). Resolved multiple deployment issues: missing `EMAIL_RECIPIENT` secret, Gmail rejecting regular password (needed App Password), yfinance rate limiting on GitHub Actions shared IPs. Iteratively eliminated yfinance dependency — first batched downloads, then replaced entirely with a Google Apps Script web app that refreshes prices via GOOGLEFINANCE and computes 50d moving averages server-side. Added data quality warnings to the digest (shows when price refresh fails or specific symbols error). Final state: zero yfinance API calls, all market data from Google Apps Script, 19 tests passing, 7 PRs merged to main.
 
+**2026-06-27 (session 3):**
+Wire-up, data fixes, and daily alert redesign. (1) Integrated `process_trades.py` into the daily run — it now executes first, before price refresh, so Holdings reflects latest trades before signals are computed. Manually processed 23 pending trades ($160,376 deployed, SPAXX $807,963 → $647,588). Fixed `ValueError` from dollar-sign-prefixed values in deployed_amount cells. (2) Fixed two sheet data errors: XLU and JNJ `planned_pct` were 0.02 instead of 2.0 (data entry error cascaded into wrong `planned_amount`); `portfolio_weight_pct` formula for rows 12–17 used relative `Portfolio_Config!B2` reference that had drifted to B3–B8, causing KO (row 16) to divide by SP500_CORRECTION_THRESHOLD (3.0) instead of TOTAL_IRA_VALUE, producing 85,642% weight. Fixed to `$B$2` absolute reference. (3) Replaced all static current_price values with live `=IFERROR(GOOGLEFINANCE("TICKER","price"),GOOGLEFINANCE("MUTF:TICKER","price"))` formulas for all 34 symbols; updated Apps Script to set the formula rather than overwriting with setValue. (4) Redesigned daily alert: removed per-symbol stop-loss emails, replaced with a single always-send deployment watchlist email showing every underdeployed symbol with current price, previous close, and day-over-day % change. Apps Script now also fetches and returns `prev_prices` (closeyest) in its JSON response.
+
 ## Current State
 
-**The application is fully deployed on GitHub and sending email alerts. All market data comes from a Google Apps Script web app — zero yfinance dependency.**
+**`develop` branch has 4 new commits (ab19a58 → 15e901c) not yet merged to `main`. The Apps Script in the Google Sheet must be redeployed before the daily email shows previous-close prices.**
 
-- Repo: `https://github.com/paulbishwajeet/portfolio-demon.git` — `main` branch is production, `develop` is working branch. 7 PRs merged.
-- GitHub Actions: 3 workflows configured (daily 9am ET weekdays, weekly Sunday 8pm ET, manual dispatch). All use `main` branch.
-- GitHub Secrets configured: `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID`, `EMAIL_SENDER`, `EMAIL_PASSWORD`, `EMAIL_RECIPIENT`, `APPS_SCRIPT_URL`.
-- Google Sheet: `ira-deploymon-1mfidelity` with 34 holdings, live GOOGLEFINANCE prices via Apps Script web app.
-- Apps Script: Deployed as web app. Returns current prices, 50d moving averages, and SPY daily change in one JSON response. Python calls it via HTTP at the start of every run.
-- Email: Working end-to-end via Gmail SMTP with App Password. Weekly digest and stop-loss alerts confirmed received.
-- Tests: 19 passing (4 calculator, 6 formatter, 9 signals).
-- The user has already received successful digest and stop-loss emails.
+- Repo: `develop` branch is ahead of `main` by 4 commits. Changes cover: process_trades integration, sheet data fixes, GOOGLEFINANCE live price formulas, and daily watchlist email redesign.
+- Google Sheet `ira-deploymon-1mfidelity`: All 34 `current_price` cells now have live `GOOGLEFINANCE` formulas. Holdings reflect 23 processed trades. `planned_pct` for XLU and JNJ corrected to 2.0. `portfolio_weight_pct` formula fixed for rows 12–17 (absolute `$B$2` reference).
+- Daily email: Now always sends a deployment watchlist (underdeployed symbols + current/prev price + day% change). Stop-loss individual emails removed from daily cadence; stop-loss section remains in weekly digest.
+- Apps Script: Code updated in `scripts/google_apps_script.js` (added `getPrevClose()`, returns `prev_prices` in response, sets GOOGLEFINANCE formulas instead of static setValue) but **not yet redeployed**. Until redeployed, the daily watchlist email shows `n/a` for previous-close prices.
 
-**Single next action:** The user needs to update the Apps Script code in their Google Sheet (Extensions → Apps Script → paste latest `scripts/google_apps_script.js` → Deploy → Manage deployments → edit → New version → Deploy). The latest version computes 50d MAs and SPY daily change server-side, eliminating yfinance entirely. Without this update, the deployed web app only returns prices (not MAs), so dip scores will all be 0.
+**Single next action:** Redeploy the Apps Script — open Google Sheet → Extensions → Apps Script → paste latest `scripts/google_apps_script.js` → Deploy → Manage deployments → edit → New version → Deploy. Then create a PR from `develop` to `main`.
 
 ## Key Files
 
@@ -42,15 +41,17 @@ Deployed to GitHub and switched notification channel from Telegram to email. Ini
 - `src/signals/tier2_rebalance.py` — band breach, overweight, speculative cap signals
 - `src/signals/tier3_speculative.py` — deployment opportunities, stop-loss, take-profit signals
 - `src/signals/correction.py` — SPY >3% single-day drop detection (reads from price_refresh cache)
-- `src/alerts/formatter.py` — weekly digest (with data warnings), correction alert, stop-loss alert templates
-- `src/alerts/dispatcher.py` — daily (silent unless emergency) vs weekly (always send) logic, builds data warnings from refresh status
+- `src/alerts/formatter.py` — weekly digest (with data warnings), correction alert, stop-loss alert templates; added `format_daily_watchlist()` — table of underdeployed symbols with current price, prev close, day % change, deployed amount, headroom
+- `src/alerts/dispatcher.py` — daily now always sends deployment watchlist (removed stop-loss loop); weekly always sends full digest; correction alert fires separately on SPY drop
+- `src/sheets/price_refresh.py` — now stores `_prev_prices` dict and exposes `get_prev_price(symbol)`
 - `src/alerts/email_sender.py` — Gmail SMTP sender with TLS, retry, and dry-run support
 
 **Scripts:**
-- `scripts/google_apps_script.js` — Google Apps Script web app: refreshes prices via GOOGLEFINANCE, computes 50d MAs, returns SPY daily change. Must be pasted into the Google Sheet's Apps Script editor and deployed as a web app.
+- `scripts/google_apps_script.js` — Apps Script web app: now sets GOOGLEFINANCE formulas (not static values) for current_price, fetches `prev_prices` (closeyest) for all symbols via scratch sheet, returns `prev_prices` + `moving_averages` + `spy_daily_change_pct`. Removed `getPrice()` helper. **Needs redeployment.**
 - `scripts/seed_sheet.py` — broker CSV import or empty template creation
-- `scripts/process_trades.py` — Trade_Entry → Holdings + cash updates
-- `scripts/run_daily.py`, `run_weekly.py`, `run_correction.py`, `run_manual.py` — entrypoints (all call `trigger_price_refresh()` first)
+- `scripts/process_trades.py` — Trade_Entry → Holdings + SPAXX cash updates. Now accepts optional `sheet` param (avoids double connection when called from run_daily). Strips `$` from deployed_amount/deployed_shares before float conversion.
+- `scripts/run_daily.py` — now calls `process_trades(sheet)` first (before price refresh), then signals; stop-loss signal collection removed from daily flow.
+- `scripts/run_weekly.py`, `run_correction.py`, `run_manual.py` — entrypoints (unchanged)
 
 **Workflows:**
 - `.github/workflows/daily_monitor.yml` — weekdays 14:00 UTC (9am ET)
@@ -75,12 +76,17 @@ Deployed to GitHub and switched notification channel from Telegram to email. Ini
 8. **Data quality warnings in digest** — When price refresh fails (partially or fully), the digest shows a 🔶 DATA QUALITY WARNINGS section at the top and the email subject gets a ⚠️ prefix.
 9. **Batch size and delays for yfinance** — Before eliminating yfinance: batches of 5 with 12s delays and 20s backoff on rate limit. Now moot since Apps Script handles everything.
 10. **Apps Script scratch sheet** — Uses a hidden `_scratch` tab to evaluate GOOGLEFINANCE formulas server-side, reads the result, then clears the cell.
+11. **process_trades runs before price refresh** — Ensures Holdings deployed_amount/deployed_shares reflect latest trades before signals and P&L are computed. Order in run_daily: process_trades → price_refresh → read_holdings → compute.
+12. **current_price uses permanent GOOGLEFINANCE formula** — Sheet cells stay live at all times. Apps Script no longer overwrites with static setValue; instead sets `=IFERROR(GOOGLEFINANCE("TICKER","price"),GOOGLEFINANCE("MUTF:TICKER","price"))` formula so mutual funds fall back automatically.
+13. **Daily email always sends** — Changed from "silent unless stop-loss or correction" to always sending a deployment watchlist. Rationale: user wants to see price movement daily and decide on dip buying themselves. Stop-loss individual emails removed from daily; they appear in weekly digest only.
+14. **prev_prices via Apps Script closeyest** — Apps Script fetches previous close for all symbols via scratch sheet and returns as `prev_prices` dict. Python uses this for day-over-day % change in the daily watchlist email.
 
 ## Open Questions
 
-1. **Apps Script redeployment** — User needs to update the Apps Script code to the latest version that includes 50d MA and SPY change computation. Current deployed version may only return prices. Without the update, dip scores will be 0 in the digest.
-2. **UMAC and XLV** — These two tickers occasionally fail GOOGLEFINANCE lookup. May need ticker format investigation (UMAC is very small-cap, XLV may need "NYSEARCA:XLV" format).
-3. **Apps Script execution time** — With 34 symbols, the refresh takes ~60-75s (1.5s per symbol for price + 1.3s per symbol for MA). Google Apps Script has a 6-minute execution limit. Current 34 symbols are well within limit but adding many more could approach it.
-4. **yfinance cleanup** — `src/market/prices.py` and `src/market/indicators.py` are no longer called by the main flow. Could be removed entirely or kept as fallback. Currently dead code.
-5. **No integration tests** — all 19 tests use mock data. No tests that hit the real Google Sheet, Apps Script, or email.
-6. **TOTAL_IRA_VALUE accuracy** — set from CSV import cost basis. User may want to update to reflect actual market value.
+1. **Apps Script redeployment pending** — `scripts/google_apps_script.js` updated locally but not yet deployed to the live web app. Until redeployed: daily watchlist shows `n/a` for prev close prices; current_price cells may revert to static values on next Apps Script run. Also increases execution time: `getPrevClose()` adds ~200ms × 34 symbols ≈ 7s extra. Still within 6-min limit.
+2. **develop not merged to main** — 4 commits on `develop` since last PR. Production workflows run from `main`, so current changes are not live yet.
+3. **portfolio_weight_pct formula fragility** — Rows 12–17 had drifted relative references. Fixed with `$B$2` but only for those rows. If new rows are added to Holdings, the same drift could recur. Consider locking all portfolio_weight_pct formulas to `$B$2` via a sheet setup script.
+4. **UMAC and XLV** — These two tickers occasionally fail GOOGLEFINANCE lookup. May need ticker format investigation (UMAC is very small-cap, XLV may need "NYSEARCA:XLV" format).
+5. **yfinance cleanup** — `src/market/prices.py` and `src/market/indicators.py` are no longer called by the main flow. Dead code; could be removed.
+6. **No integration tests** — all 19 tests use mock data. No tests that hit the real Google Sheet, Apps Script, or email.
+7. **TOTAL_IRA_VALUE in Portfolio_Config** — should reflect current market value (~$1,019,214 based on sheet formulas) but may be stale if not manually updated after each run.
