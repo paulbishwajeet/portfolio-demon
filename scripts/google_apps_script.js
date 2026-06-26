@@ -59,7 +59,20 @@ function refreshAll() {
     if (sym && sym !== "") symbols.push(sym);
   }
 
-  // Phase 1: Refresh current prices
+  // Phase 1: Set live GOOGLEFINANCE price formulas (IFERROR tries MUTF: for mutual funds)
+  for (var i = 1; i < data.length; i++) {
+    var symbol = data[i][symbolCol];
+    if (!symbol || symbol === "") continue;
+
+    var cell = sheet.getRange(i + 1, priceCol + 1);
+    var formula = '=IFERROR(GOOGLEFINANCE("' + symbol + '","price"),GOOGLEFINANCE("MUTF:' + symbol + '","price"))';
+    cell.setFormula(formula);
+  }
+
+  SpreadsheetApp.flush();
+  Utilities.sleep(3000);
+
+  // Read resolved values for the response
   var updated = 0;
   var failed = [];
   var prices = {};
@@ -68,20 +81,13 @@ function refreshAll() {
     var symbol = data[i][symbolCol];
     if (!symbol || symbol === "") continue;
 
-    try {
-      var price = getPrice(symbol);
-      if (price && price > 0) {
-        sheet.getRange(i + 1, priceCol + 1).setValue(price);
-        prices[symbol] = price;
-        updated++;
-      } else {
-        failed.push(symbol);
-      }
-    } catch (e) {
-      Logger.log("Price error for " + symbol + ": " + e.message);
+    var value = sheet.getRange(i + 1, priceCol + 1).getValue();
+    if (typeof value === "number" && value > 0) {
+      prices[symbol] = value;
+      updated++;
+    } else {
       failed.push(symbol);
     }
-    Utilities.sleep(300);
   }
 
   // Phase 2: Compute 50-day moving averages
@@ -120,35 +126,6 @@ function refreshAll() {
     spy_daily_change_pct: spyChange,
     timestamp: new Date().toISOString()
   };
-}
-
-
-/**
- * Fetch current price via GOOGLEFINANCE.
- */
-function getPrice(symbol) {
-  var scratch = getScratchSheet();
-  var cell = scratch.getRange("A1");
-
-  cell.setFormula('=GOOGLEFINANCE("' + symbol + '", "price")');
-  SpreadsheetApp.flush();
-  Utilities.sleep(800);
-
-  var value = cell.getValue();
-  cell.clearContent();
-
-  if (typeof value === "number" && value > 0) return value;
-
-  // Mutual fund fallback
-  cell.setFormula('=GOOGLEFINANCE("MUTF:' + symbol + '", "price")');
-  SpreadsheetApp.flush();
-  Utilities.sleep(800);
-
-  value = cell.getValue();
-  cell.clearContent();
-
-  if (typeof value === "number" && value > 0) return value;
-  return null;
 }
 
 
