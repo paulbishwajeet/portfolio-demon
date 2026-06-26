@@ -90,7 +90,19 @@ function refreshAll() {
     }
   }
 
-  // Phase 2: Compute 50-day moving averages
+  // Phase 2: Fetch previous close prices (for day-over-day comparison)
+  var prevPrices = {};
+  for (var j = 0; j < symbols.length; j++) {
+    try {
+      var prev = getPrevClose(symbols[j]);
+      if (prev !== null) prevPrices[symbols[j]] = prev;
+    } catch (e) {
+      Logger.log("Prev close error for " + symbols[j] + ": " + e.message);
+    }
+    Utilities.sleep(200);
+  }
+
+  // Phase 3: Compute 50-day moving averages
   var movingAverages = {};
   for (var j = 0; j < symbols.length; j++) {
     try {
@@ -104,7 +116,7 @@ function refreshAll() {
     Utilities.sleep(300);
   }
 
-  // Phase 3: SPY daily change
+  // Phase 4: SPY daily change
   var spyChange = null;
   try {
     spyChange = getSpyDailyChange();
@@ -122,6 +134,7 @@ function refreshAll() {
     status: "ok",
     updated: updated,
     failed: failed,
+    prev_prices: prevPrices,
     moving_averages: movingAverages,
     spy_daily_change_pct: spyChange,
     timestamp: new Date().toISOString()
@@ -204,6 +217,25 @@ function getSpyDailyChange() {
   var today = closes[closes.length - 1];
   var prev = closes[closes.length - 2];
   return Math.round((today - prev) / prev * 10000) / 100;
+}
+
+
+/**
+ * Fetch previous trading day's closing price via GOOGLEFINANCE closeyest.
+ */
+function getPrevClose(symbol) {
+  var scratch = getScratchSheet();
+  var cell = scratch.getRange("A1");
+
+  cell.setFormula('=IFERROR(GOOGLEFINANCE("' + symbol + '","closeyest"),GOOGLEFINANCE("MUTF:' + symbol + '","closeyest"))');
+  SpreadsheetApp.flush();
+  Utilities.sleep(600);
+
+  var value = cell.getValue();
+  cell.clearContent();
+
+  if (typeof value === "number" && value > 0) return value;
+  return null;
 }
 
 
